@@ -1,19 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>2048 AI RL Multi-Game</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- React, ReactDOM, Babel, TensorFlow.js, Tailwind -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.19.0/dist/tf.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2048 AI</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel">
+    <div id="root"></div>
+    <script type="text/babel">
+
+// ---- Begin 2048 RL code ----
+
+const { useState, useEffect, useCallback, useRef } = React;
+const tf = window.tf;
+
 const GRID_SIZE = 4;
 const ACTIONS = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 const STATE_SIZE = 16;
@@ -451,7 +456,7 @@ class DQNAgent {
   }
 }
 
-export default function MultiGame2048RL() {
+function MultiGame2048RL() {
   const [numGames, setNumGames] = useState(4);
   const [games, setGames] = useState([]);
   const [isTraining, setIsTraining] = useState(false);
@@ -769,7 +774,8 @@ export default function MultiGame2048RL() {
     </div>
   );
 }
-    ReactDOM.createRoot(document.getElementById('root')).render(<MultiGame2048RL />);
-  </script>
+ReactDOM.createRoot(document.getElementById('root')).render(<MultiGame2048RL />);
+
+    </script>
 </body>
 </html>
