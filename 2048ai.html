@@ -1,646 +1,775 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2048 AI</title>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8">
+  <title>2048 AI RL Multi-Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- React, ReactDOM, Babel, TensorFlow.js, Tailwind -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.19.0/dist/tf.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
-    <div id="root"></div>
-    <script type="text/babel">
-        import tkinter as tk
-import keyboard
-import threading
-import time
-from datetime import datetime
-import os
-import sys
-import ctypes
-import json
-import subprocess
+  <div id="root"></div>
+  <script type="text/babel">
+const GRID_SIZE = 4;
+const ACTIONS = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
+const STATE_SIZE = 16;
+const ACTION_SIZE = 4;
 
-# Default settings
-DEFAULT_SETTINGS = {
-    "debug_mode": False,
-    "exit_keybind": None,
-    "window_position": {"x": 800, "y": 400},
-    "compact_mode": False,
-    "stats_visible": True,
-    "stay_on_top": True,
-    "auto_open_console": False,
-    "resets_counter_visible": False,  # New setting
-    "key_flashing_enabled": True,  # New setting
-    "bypass_emergency_mode": False,  # New setting
-    "tracked_keys": {
-        "movement": {
-            "up": "up",
-            "down": "down",
-            "left": "left",
-            "right": "right"
-        },
-        "spacebar": "space",
-        "reset_sequence": {
-            "first": "backspace",
-            "second": "="
-        }
+// Game instance class
+class GameInstance {
+  constructor(id) {
+    this.id = id;
+    this.grid = this.initGrid();
+    this.grid = this.addRandomTile(this.grid);
+    this.grid = this.addRandomTile(this.grid);
+    this.score = 0;
+    this.moves = 0;
+    this.gameOver = false;
+    this.lastAction = '';
+    this.previousState = null;
+    this.previousAction = null;
+  }
+
+  initGrid() {
+    return Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+  }
+
+  addRandomTile(grid) {
+    const emptyCells = [];
+    for (let i = 0; i < GRID_SIZE; i++) {
+      for (let j = 0; j < GRID_SIZE; j++) {
+        if (grid[i][j] === 0) emptyCells.push({ i, j });
+      }
     }
+    
+    if (emptyCells.length === 0) return grid;
+    
+    const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+    const newGrid = grid.map(row => [...row]);
+    newGrid[randomCell.i][randomCell.j] = Math.random() < 0.9 ? 2 : 4;
+    return newGrid;
+  }
+
+  reset() {
+    this.grid = this.initGrid();
+    this.grid = this.addRandomTile(this.grid);
+    this.grid = this.addRandomTile(this.grid);
+    this.score = 0;
+    this.moves = 0;
+    this.gameOver = false;
+    this.lastAction = '';
+    this.previousState = null;
+    this.previousAction = null;
+  }
+
+  getValidActions() {
+    const validActions = [];
+    for (const action of ACTIONS) {
+      const { grid: moved } = this.move(this.grid, action);
+      if (!this.gridsEqual(this.grid, moved)) {
+        validActions.push(action);
+      }
+    }
+    return validActions;
+  }
+
+  gridsEqual(a, b) {
+    for (let i = 0; i < GRID_SIZE; i++) {
+      for (let j = 0; j < GRID_SIZE; j++) {
+        if (a[i][j] !== b[i][j]) return false;
+      }
+    }
+    return true;
+  }
+
+  moveLeft(grid) {
+    let score = 0;
+    const newGrid = grid.map(row => {
+      const filtered = row.filter(val => val !== 0);
+      const merged = [];
+      let i = 0;
+      
+      while (i < filtered.length) {
+        if (i < filtered.length - 1 && filtered[i] === filtered[i + 1]) {
+          merged.push(filtered[i] * 2);
+          score += filtered[i] * 2;
+          i += 2;
+        } else {
+          merged.push(filtered[i]);
+          i++;
+        }
+      }
+      
+      while (merged.length < GRID_SIZE) merged.push(0);
+      return merged;
+    });
+    
+    return { grid: newGrid, score };
+  }
+
+  moveRight(grid) {
+    const reversed = grid.map(row => [...row].reverse());
+    const { grid: moved, score } = this.moveLeft(reversed);
+    return { grid: moved.map(row => [...row].reverse()), score };
+  }
+
+  rotateGrid(grid) {
+    const rotated = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(0));
+    for (let i = 0; i < GRID_SIZE; i++) {
+      for (let j = 0; j < GRID_SIZE; j++) {
+        rotated[j][GRID_SIZE - 1 - i] = grid[i][j];
+      }
+    }
+    return rotated;
+  }
+
+  moveUp(grid) {
+    const rotated = this.rotateGrid(this.rotateGrid(this.rotateGrid(grid)));
+    const { grid: moved, score } = this.moveLeft(rotated);
+    return { grid: this.rotateGrid(moved), score };
+  }
+
+  moveDown(grid) {
+    const rotated = this.rotateGrid(grid);
+    const { grid: moved, score } = this.moveLeft(rotated);
+    return { grid: this.rotateGrid(this.rotateGrid(this.rotateGrid(moved))), score };
+  }
+
+  move(grid, direction) {
+    switch (direction) {
+      case 'LEFT': return this.moveLeft(grid);
+      case 'RIGHT': return this.moveRight(grid);
+      case 'UP': return this.moveUp(grid);
+      case 'DOWN': return this.moveDown(grid);
+      default: return { grid, score: 0 };
+    }
+  }
+
+  calculateReward(oldGrid, newGrid, score, gameOver) {
+    let reward = 0;
+    
+    reward += score * 0.1;
+    
+    const emptyCells = newGrid.flat().filter(x => x === 0).length;
+    reward += emptyCells * 10;
+    
+    const maxTile = Math.max(...newGrid.flat());
+    reward += Math.log2(maxTile || 1) * 20;
+    
+    const checkMono = (arr) => {
+      let mono = 0;
+      for (let i = 0; i < arr.length - 1; i++) {
+        if (arr[i] >= arr[i + 1]) mono++;
+      }
+      return mono;
+    };
+    
+    for (let i = 0; i < GRID_SIZE; i++) {
+      reward += checkMono(newGrid[i]) * 5;
+      const col = newGrid.map(row => row[i]);
+      reward += checkMono(col) * 5;
+    }
+    
+    if (gameOver) {
+      reward -= 500;
+    }
+    
+    if (maxTile >= 2048) {
+      reward += 2048;
+    }
+    
+    return reward;
+  }
+
+  async makeMove(action, agent) {
+    if (this.gameOver) return false;
+    
+    const { grid: moved, score: moveScore } = this.move(this.grid, action);
+    
+    if (this.gridsEqual(this.grid, moved)) return false;
+    
+    const withNewTile = this.addRandomTile(moved);
+    
+    // Check if game is over AFTER adding the new tile
+    const newGrid = [...withNewTile.map(row => [...row])];
+    const validActionsAfter = [];
+    for (const testAction of ACTIONS) {
+      const { grid: testMoved } = this.move(newGrid, testAction);
+      if (!this.gridsEqual(newGrid, testMoved)) {
+        validActionsAfter.push(testAction);
+      }
+    }
+    const newGameOver = validActionsAfter.length === 0;
+    const newScore = this.score + moveScore;
+    
+    const reward = this.calculateReward(this.grid, withNewTile, moveScore, newGameOver);
+    
+    if (agent && this.previousState && this.previousAction) {
+      agent.remember(
+        this.previousState,
+        this.previousAction,
+        reward,
+        withNewTile,
+        newGameOver
+      );
+    }
+    
+    this.grid = withNewTile;
+    this.score = newScore;
+    this.gameOver = newGameOver;
+    this.moves++;
+    this.lastAction = action;
+    this.previousState = withNewTile;
+    this.previousAction = action;
+    
+    return true;
+  }
 }
 
-def load_settings():
-    """Load settings from JSON file or create with defaults if not exists."""
-    settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keyvis_settings.json')
-    try:
-        with open(settings_path, 'r') as f:
-            print(f"Loading settings from: {settings_path}")
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"Settings file not found, creating new one at: {settings_path}")
-        # Create default settings file
-        save_settings(DEFAULT_SETTINGS)
-        return DEFAULT_SETTINGS
-    except json.JSONDecodeError:
-        print(f"Error reading settings file at: {settings_path}, using defaults")
-        # Overwrite the corrupted file with default settings
-        save_settings(DEFAULT_SETTINGS)
-        return DEFAULT_SETTINGS
+// DQN Agent with fixed TensorFlow model creation
+class DQNAgent {
+  constructor() {
+    this.stateSize = STATE_SIZE;
+    this.actionSize = ACTION_SIZE;
+    this.memory = [];
+    this.memorySize = 50000;
+    this.epsilon = 1.0;
+    this.epsilonMin = 0.01;
+    this.epsilonDecay = 0.9995;
+    this.learningRate = 0.001;
+    this.gamma = 0.95;
+    this.batchSize = 64;
+    this.trainFreq = 8;
+    this.targetUpdateFreq = 200;
+    this.step = 0;
+    this.modelId = Date.now() + Math.random(); // Unique ID for model naming
+    this.isDisposed = false;
+    
+    this.qNetwork = this.buildModel('main');
+    this.targetNetwork = this.buildModel('target');
+    this.updateTargetNetwork();
+  }
 
-def save_settings(settings):
-    """Save current settings to JSON file."""
-    try:
-        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keyvis_settings.json')
-        with open(settings_path, 'w') as f:
-            json.dump(settings, f, indent=4)
-            print(f"Settings saved to: {settings_path}")
-    except Exception as e:
-        print(f"Error saving settings: {e}")
+  buildModel(suffix) {
+    if (this.isDisposed) {
+      throw new Error('Agent has been disposed');
+    }
+    
+    const modelName = `dqn_${this.modelId}_${suffix}`;
+    
+    const model = tf.sequential({
+      name: modelName,
+      layers: [
+        tf.layers.dense({
+          name: `${modelName}_dense1`,
+          inputShape: [this.stateSize],
+          units: 512,
+          activation: 'relu',
+          kernelInitializer: 'glorotUniform'
+        }),
+        tf.layers.dropout({ 
+          name: `${modelName}_dropout1`,
+          rate: 0.3 
+        }),
+        tf.layers.dense({
+          name: `${modelName}_dense2`,
+          units: 256,
+          activation: 'relu',
+          kernelInitializer: 'glorotUniform'
+        }),
+        tf.layers.dropout({ 
+          name: `${modelName}_dropout2`,
+          rate: 0.3 
+        }),
+        tf.layers.dense({
+          name: `${modelName}_dense3`,
+          units: 128,
+          activation: 'relu',
+          kernelInitializer: 'glorotUniform'
+        }),
+        tf.layers.dense({
+          name: `${modelName}_output`,
+          units: this.actionSize,
+          activation: 'linear',
+          kernelInitializer: 'glorotUniform'
+        })
+      ]
+    });
 
-# Windows-specific taskbar setup
-def set_appwindow(root):
-    if os.name == 'nt':
-        try:
-            # Use GetWindowLongPtrW for 64-bit Windows
-            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-            style = ctypes.windll.user32.GetWindowLongPtrW(hwnd, -20)
-            style = style | 0x00040000  # WS_EX_APPWINDOW
-            ctypes.windll.user32.SetWindowLongPtrW(hwnd, -20, style)
-            root.wm_withdraw()
-            root.after(10, lambda: root.wm_deiconify())
-        except AttributeError:
-            # Fallback to GetWindowLongW for 32-bit Windows
-            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
-            style = style | 0x00040000  # WS_EX_APPWINDOW
-            ctypes.windll.user32.SetWindowLongW(hwnd, -20, style)
-            root.wm_withdraw()
-            root.after(10, lambda: root.wm_deiconify())
+    model.compile({
+      optimizer: tf.train.adam(this.learningRate),
+      loss: 'meanSquaredError'
+    });
 
-print('made by t4cs. please report any bugs to the github page.')
+    return model;
+  }
 
-class ErrorConsole:
-    def __init__(self):
-        self.window = tk.Toplevel()
-        self.window.title("Error Console")
-        self.window.geometry("600x400")
-        self.window.configure(bg='#1E1E1E')
-        
-        # Error list
-        self.text = tk.Text(self.window, bg='#1E1E1E', fg='#D4D4D4',
-                           font=('Consolas', 10), wrap=tk.WORD)
-        self.text.pack(fill=tk.BOTH, expand=True)
-        
-        # Configure tags for colored text
-        self.text.tag_configure('error', foreground='#FF6B68')
-        self.text.tag_configure('time', foreground='#6796E6')
-        
-        # Make window stay on top
-        self.window.attributes('-topmost', True)
-        self.window.withdraw()  # Start hidden
-        
-        # Redirect stdout and stderr to the error console
-        sys.stdout = self
-        sys.stderr = self
+  dispose() {
+    if (this.isDisposed) return;
+    
+    this.isDisposed = true;
+    
+    if (this.qNetwork) {
+      try {
+        this.qNetwork.dispose();
+      } catch (e) {
+        console.warn('Error disposing qNetwork:', e);
+      }
+      this.qNetwork = null;
+    }
+    if (this.targetNetwork) {
+      try {
+        this.targetNetwork.dispose();
+      } catch (e) {
+        console.warn('Error disposing targetNetwork:', e);
+      }
+      this.targetNetwork = null;
+    }
+  }
 
-        # Handle window close
-        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
+  preprocessState(grid) {
+    if (this.isDisposed) return null;
+    const flattened = grid.flat().map(val => val === 0 ? 0 : Math.log2(val) / 11);
+    return tf.tensor2d([flattened]);
+  }
 
-    def write(self, message):
-        """Write messages to the error console."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.text.insert(tk.END, f"[{timestamp}] ", 'time')
-        self.text.insert(tk.END, message, 'error')
-        self.text.see(tk.END)
+  remember(state, action, reward, nextState, done) {
+    if (this.isDisposed) return;
+    this.memory.push({ state, action, reward, nextState, done });
+    if (this.memory.length > this.memorySize) {
+      this.memory.shift();
+    }
+  }
 
-    def flush(self):
-        """Flush method required for stdout and stderr redirection."""
-        pass
+  async act(state, validActions) {
+    if (this.isDisposed) return validActions[0];
+    
+    this.step++;
+    
+    if (Math.random() <= this.epsilon) {
+      return validActions[Math.floor(Math.random() * validActions.length)];
+    }
 
-    def show(self):
-        """Show the error console."""
-        self.window.deiconify()
-        print("opened console")  # Print to both terminal and error console
+    const stateTensor = this.preprocessState(state);
+    if (!stateTensor) return validActions[0];
+    
+    const qValues = await this.qNetwork.predict(stateTensor);
+    const qArray = await qValues.data();
+    
+    stateTensor.dispose();
+    qValues.dispose();
 
-    def log_error(self, error_msg):
-        """Log an error message to the error console."""
-        self.write(f"{error_msg}\n")
+    let bestAction = validActions[0];
+    let bestValue = -Infinity;
+    
+    for (const action of validActions) {
+      const actionIndex = ACTIONS.indexOf(action);
+      if (qArray[actionIndex] > bestValue) {
+        bestValue = qArray[actionIndex];
+        bestAction = action;
+      }
+    }
 
-    def on_close(self):
-        """Handle the closing of the error console window."""
-        self.window.withdraw()  # Hide the window instead of destroying it
+    return bestAction;
+  }
 
-class SpaceBarIndicator:
-    def __init__(self, parent, key_name, y_position, settings):
-        self.key_name = key_name
-        self.width = 250
-        self.height = 50
-        self.is_fading = False  # Track if fading is in progress
-        self.settings = settings  # Store the settings
+  async replay() {
+    if (this.isDisposed || this.memory.length < this.batchSize) return;
 
-        self.frame = tk.Frame(parent, width=self.width, height=self.height)
-        if y_position is not None:
-            self.frame.place(x=(400 - self.width) // 2, y=y_position)
+    const batch = [];
+    for (let i = 0; i < this.batchSize; i++) {
+      const randomIndex = Math.floor(Math.random() * this.memory.length);
+      batch.push(this.memory[randomIndex]);
+    }
 
-        # Create the key rectangle
-        self.rectangle = tk.Canvas(self.frame, width=self.width, height=self.height,
-                                   bg="#222222", highlightthickness=0)  # Default background color
-        self.rectangle.pack(fill=tk.BOTH, expand=True)
+    const states = [];
+    const targets = [];
 
-        # Create the rectangle shape and text label
-        self.draw_elements()
-
-    def draw_elements(self):
-        # Create the rectangle shape
-        self.rect = self.rectangle.create_rectangle(4, 4, self.width - 4, self.height - 4,
-                                                    outline="#444444", width=2)
-
-        # Add text label
-        self.label = self.rectangle.create_text(self.width / 2, self.height / 2, text=self.key_name,
-                                                fill="#000000", font=("Arial", 10))  # Text is always black
-
-    def resize(self, width, height):
-        """Resize the spacebar indicator."""
-        self.width = width
-        self.height = height
-
-        # Recreate the canvas with new dimensions
-        self.rectangle.destroy()
-        self.rectangle = tk.Canvas(self.frame, width=self.width, height=self.height,
-                                   bg="#222222", highlightthickness=0)
-        self.rectangle.pack(fill=tk.BOTH, expand=True)
-
-        # Redraw elements
-        self.draw_elements()
-
-    def light_up(self):
-        """Highlight the key (white) and cancel any ongoing fade-out."""
-        self.is_fading = False  # Stop any ongoing fade-out
-        self.rectangle.itemconfig(self.rect, outline="#FFFFFF", fill="#000000")  # Text is always black
-
-    def turn_off(self):
-        """Start the fade-out effect when the key is released."""
-        if not self.is_fading:  # Prevent multiple fade-out triggers
-            if self.settings.get("key_flashing_enabled", False):  # Check if flashing is enabled
-                self.is_fading = True
-                self.fade_out()
-            else:
-                # Reset immediately if flashing is disabled
-                self.rectangle.itemconfig(self.rect, outline="#444444", fill="#222222")
-                self.rectangle.itemconfig(self.label, fill="#000000")  # Text remains black
-
-    def fade_out(self):
-        """Smoothly fade the button back to its original color."""
-        steps = 10
-        delay = 50  # milliseconds
-        highlight_color = "#FFFFFF"
-        original_color = "#222222"
-
-        def step_fade(step):
-            if step <= steps and self.is_fading:  # Continue only if fading is active
-                # Calculate the intermediate color
-                factor = step / steps
-                r1, g1, b1 = self.hex_to_rgb(highlight_color)
-                r2, g2, b2 = self.hex_to_rgb(original_color)
-                r = int(r1 + (r2 - r1) * factor)
-                g = int(g1 + (g2 - g1) * factor)
-                b = int(b1 + (b2 - b1) * factor)
-                intermediate_color = f"#{r:02x}{g:02x}{b:02x}"
-
-                # Apply the intermediate color
-                self.rectangle.itemconfig(self.rect, fill=intermediate_color)
-                self.frame.after(delay, lambda: step_fade(step + 1))
-            else:
-                # Reset to the original color
-                self.rectangle.itemconfig(self.rect, fill=original_color)
-                self.rectangle.itemconfig(self.label, fill="#000000")  # Text remains black
-                self.is_fading = False
-
-        step_fade(0)
-
-    def hex_to_rgb(self, hex_color):
-        """Convert hex color to RGB tuple."""
-        hex_color = hex_color.lstrip("#")
-        return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
-
-class KeyIndicator:
-    def __init__(self, parent, key_name, x_position, y_position, settings):
-        self.key_name = key_name
-        self.width = 60
-        self.height = 60
-        self.is_fading = False  # Track if fading is in progress
-        self.settings = settings  # Store the settings
-
-        self.frame = tk.Frame(parent, width=self.width, height=self.height)
-        if x_position is not None and y_position is not None:
-            self.frame.place(x=x_position, y=y_position)
-
-        # Create the key square
-        self.square = tk.Canvas(self.frame, width=self.width, height=self.height,
-                                 bg="#222222", highlightthickness=0)
-        self.square.pack(fill=tk.BOTH, expand=True)
-
-        # Create the square shape and text label
-        self.draw_elements()
-
-    def draw_elements(self):
-        # Create the square shape
-        self.rect = self.square.create_rectangle(4, 4, self.width-4, self.height-4,
-                                                 outline="#444444", width=2)
-
-        # Add text label
-        self.label = self.square.create_text(self.width/2, self.height/2, text=self.key_name,
-                                             fill="#777777", font=("Arial", 10))
-
-    def resize(self, width, height):
-        # Update dimensions
-        self.width = width
-        self.height = height
-
-        # Recreate the canvas with new dimensions
-        self.square.destroy()
-        self.square = tk.Canvas(self.frame, width=self.width, height=self.height,
-                                 bg="#222222", highlightthickness=0)
-        self.square.pack(fill=tk.BOTH, expand=True)
-
-        # Redraw elements
-        self.draw_elements()
-
-    def light_up(self):
-        """Highlight the key (white) and cancel any ongoing fade-out."""
-        self.is_fading = False  # Stop any ongoing fade-out
-        self.square.itemconfig(self.rect, outline="#FFFFFF", fill="#000000")  # Text is always black
-
-    def turn_off(self):
-        """Start the fade-out effect when the key is released."""
-        if not self.is_fading:  # Prevent multiple fade-out triggers
-            self.is_fading = True
-            self.fade_out()
-
-    def fade_out(self):
-        """Smoothly fade the button back to its original color."""
-        steps = 10
-        delay = 50  # milliseconds
-        highlight_color = "#FFFFFF"
-        original_color = "#222222"
-
-        def step_fade(step):
-            if step <= steps and self.is_fading:  # Continue only if fading is active
-                # Calculate the intermediate color
-                factor = step / steps
-                r1, g1, b1 = self.hex_to_rgb(highlight_color)
-                r2, g2, b2 = self.hex_to_rgb(original_color)
-                r = int(r1 + (r2 - r1) * factor)
-                g = int(g1 + (g2 - g1) * factor)
-                b = int(b1 + (b2 - b1) * factor)
-                intermediate_color = f"#{r:02x}{g:02x}{b:02x}"
-
-                # Apply the intermediate color
-                self.square.itemconfig(self.rect, fill=intermediate_color)
-                self.frame.after(delay, lambda: step_fade(step + 1))
-            else:
-                # Reset to the original color
-                self.square.itemconfig(self.rect, fill=original_color)
-                self.square.itemconfig(self.label, fill="#777777")
-                self.is_fading = False
-
-        step_fade(0)
-
-    def hex_to_rgb(self, hex_color):
-        """Convert hex color to RGB tuple."""
-        hex_color = hex_color.lstrip("#")
-        return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
-
-class OrganizedKeyVisualizer:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Key Press Visualizer")
-        self.root.geometry("400x400+800+400")
-        
-        # Set window icon
-        self.set_icon()
-        
-        # Window styling
-        self.root.attributes('-alpha', 0.9)
-        self.root.overrideredirect(True)
-        if os.name == 'nt':
-            set_appwindow(root)
-        self.root.attributes('-topmost', True)
-        
-        # Main container
-        self.frame = tk.Frame(root, bg='#333333')
-        self.frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Initialize frames that will be used later
-        self.content_frame = None
-        self.stats_frame = None
-        self.spacebar_frame = None
-        self.arrows_frame = None
-        self.compact_frame = None
-        
-        # Initialize state variables
-        self.keypress_count = 0
-        self.reset_count = 0
-        self.backspace_pressed_time = None
-        self.key_presses = []
-        self.x = None
-        self.y = None
-        self.minimized = False
-        self.iconic_frame = None
-        self.compact_mode = False
-        self.stats_visible = True
-        self.stay_on_top = True
-        
-        # Load settings
-        self.settings = load_settings()
-
-        # Initialize components dictionaries
-        self.compact_components = {'space': None, 'up': None, 'down': None, 'left': None, 'right': None}
-        self.normal_components = {}  # Initialize as an empty dictionary
-
-        # Bind exit key
-        self.bind_exit_key()
-
-        # Bind relaunch key
-        self.bind_relaunch_key()
-
-        # Create UI sections in order
-        self.create_header_section()
-        self.create_control_bar()
-        self.create_content_frame()
-        self.create_stats_section()
-        
-        # Create frames for key indicators
-        self.spacebar_frame = tk.Frame(self.content_frame, bg='#333333')
-        self.spacebar_frame.pack(side=tk.TOP, pady=15, fill=tk.X)
-        
-        self.arrows_frame = tk.Frame(self.content_frame, bg='#333333')
-        self.arrows_frame.pack(side=tk.TOP, pady=10)
-        
-        # Create key indicators
-        self.create_spacebar_section()
-        print("Creating arrow keys section...")
-        self.create_arrow_keys_section()
-
-        # Key states tracking
-        self.key_states = {
-            'up': False, 'down': False, 'left': False, 'right': False,
-            'space': False, 'backspace': False, '=': False, 't': False
+    for (const experience of batch) {
+      if (this.isDisposed) break;
+      
+      const { state, action, reward, nextState, done } = experience;
+      
+      const stateTensor = this.preprocessState(state);
+      if (!stateTensor) continue;
+      
+      const currentQ = await this.qNetwork.predict(stateTensor);
+      const currentQArray = await currentQ.data();
+      
+      let target = reward;
+      if (!done) {
+        const nextStateTensor = this.preprocessState(nextState);
+        if (nextStateTensor) {
+          const nextQ = await this.targetNetwork.predict(nextStateTensor);
+          const nextQArray = await nextQ.data();
+          target = reward + this.gamma * Math.max(...nextQArray);
+          nextStateTensor.dispose();
+          nextQ.dispose();
         }
-        
-        # Start monitoring threads
-        self.running = True
-        self.start_threads()
+      }
 
-        # Error handling components
-        self.error_console = None
-        self.error_bar_frame = tk.Frame(self.frame, bg='#FF3333', height=25)
-        self.error_text = tk.Label(self.error_bar_frame, text="ERROR - PLEASE CHECK",
-                                 bg='#FF3333', fg='white', font=("Arial", 9, "bold"))
-        self.error_text.pack(side=tk.LEFT, padx=10, pady=3)
-        self.error_bar_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        self.error_bar_frame.pack_forget()
+      const targetArray = [...currentQArray];
+      targetArray[ACTIONS.indexOf(action)] = target;
 
-        # Initialize the error console
-        self.error_console = ErrorConsole()
+      states.push(state.flat().map(val => val === 0 ? 0 : Math.log2(val) / 11));
+      targets.push(targetArray);
 
-        # Add test error button in the bottom-right corner
-        if self.settings.get("debug_mode", False):
-            self.test_error_btn = tk.Button(self.frame, text="○", command=lambda: self.show_error("Test error initiated"),
-                                            bg='#333333', fg='white', width=2, height=1,
-                                            bd=0, highlightthickness=0)
-            self.test_error_btn.pack(side=tk.BOTTOM, anchor=tk.SE, padx=5, pady=5)
+      stateTensor.dispose();
+      currentQ.dispose();
+    }
 
-        # Bind the "T" key to open the error console (ensure no duplicate bindings)
-        root.bind("<KeyPress-t>", self.open_error_console)
-        # Bind "Y" key to open settings file
-        root.bind("<KeyPress-y>", lambda event: self.open_settings_file())
+    if (this.isDisposed || states.length === 0) return;
 
-    def set_icon(self):
-        """Set application icon with PyInstaller compatibility"""
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.abspath(".")
+    const statesTensor = tf.tensor2d(states);
+    const targetsTensor = tf.tensor2d(targets);
+    
+    await this.qNetwork.fit(statesTensor, targetsTensor, {
+      epochs: 1,
+      verbose: 0
+    });
+
+    statesTensor.dispose();
+    targetsTensor.dispose();
+
+    if (this.epsilon > this.epsilonMin) {
+      this.epsilon *= this.epsilonDecay;
+    }
+
+    if (this.step % this.targetUpdateFreq === 0) {
+      this.updateTargetNetwork();
+    }
+  }
+
+  updateTargetNetwork() {
+    if (this.isDisposed) return;
+    const weights = this.qNetwork.getWeights();
+    this.targetNetwork.setWeights(weights);
+  }
+}
+
+export default function MultiGame2048RL() {
+  const [numGames, setNumGames] = useState(4);
+  const [games, setGames] = useState([]);
+  const [isTraining, setIsTraining] = useState(false);
+  const [totalEpisodes, setTotalEpisodes] = useState(0);
+  const [bestScore, setBestScore] = useState(0);
+  const [avgScore, setAvgScore] = useState(0);
+  const [epsilon, setEpsilon] = useState(1.0);
+  const [gamesPerSecond, setGamesPerSecond] = useState(0);
+  const [experiencesPerSecond, setExperiencesPerSecond] = useState(0);
+  const [totalGamesCompleted, setTotalGamesCompleted] = useState(0);
+  const [recentScores, setRecentScores] = useState([]);
+  
+  const agentRef = useRef(null);
+  const episodeScoresRef = useRef([]);
+  const experiencesPerSecondRef = useRef(0);
+  const lastSecondRef = useRef(Date.now());
+  const gamesThisSecondRef = useRef(0);
+  const experiencesThisSecondRef = useRef(0);
+
+  // Initialize agent and games
+  const initializeAgentAndGames = useCallback((newNumGames) => {
+    // Clean up previous agent if exists
+    if (agentRef.current) {
+      agentRef.current.dispose();
+      agentRef.current = null;
+    }
+    
+    // Clear TensorFlow backend to prevent variable conflicts
+    tf.disposeVariables();
+    
+    // Wait a moment for cleanup to complete
+    setTimeout(() => {
+      try {
+        agentRef.current = new DQNAgent();
+        const initialGames = [];
+        for (let i = 0; i < newNumGames; i++) {
+          initialGames.push(new GameInstance(i));
+        }
+        setGames(initialGames);
+      } catch (error) {
+        console.error('Error initializing agent:', error);
+        // Retry once more after additional cleanup
+        setTimeout(() => {
+          tf.disposeVariables();
+          agentRef.current = new DQNAgent();
+          const initialGames = [];
+          for (let i = 0; i < newNumGames; i++) {
+            initialGames.push(new GameInstance(i));
+          }
+          setGames(initialGames);
+        }, 500);
+      }
+    }, 100);
+  }, []);
+
+  useEffect(() => {
+    initializeAgentAndGames(numGames);
+
+    // Cleanup on unmount
+    return () => {
+      if (agentRef.current) {
+        agentRef.current.dispose();
+        agentRef.current = null;
+      }
+      tf.disposeVariables();
+    };
+  }, [numGames, initializeAgentAndGames]);
+
+  const resetAllGames = () => {
+    // Stop training first
+    setIsTraining(false);
+    
+    // Reset stats
+    setTotalEpisodes(0);
+    setBestScore(0);
+    setAvgScore(0);
+    setTotalGamesCompleted(0);
+    setRecentScores([]);
+    episodeScoresRef.current = [];
+    setEpsilon(1.0);
+    
+    // Reinitialize everything
+    initializeAgentAndGames(numGames);
+  };
+
+  const handleNumGamesChange = (newNumGames) => {
+    setIsTraining(false); // Stop training when changing number of games
+    setNumGames(newNumGames);
+  };
+
+  // Multi-game training loop
+  useEffect(() => {
+    if (!isTraining || !agentRef.current || games.length === 0 || agentRef.current.isDisposed) return;
+
+    const trainStep = async () => {
+      const agent = agentRef.current;
+      if (!agent || agent.isDisposed) return;
+      
+      let experiencesGained = 0;
+      
+      for (const game of games) {
+        // Always try to make a move if game is not over
+        if (!game.gameOver) {
+          const validActions = game.getValidActions();
+          
+          if (validActions.length > 0) {
+            const action = await agent.act(game.grid, validActions);
+            const moveMade = await game.makeMove(action, agent);
             
-        icon_path = os.path.join(base_path, 'app_icon.ico')
-        if os.path.exists(icon_path):
-            try:
-                self.root.iconbitmap(icon_path)
-            except Exception as e:
-                print(f"Error loading icon: {e}")
+            if (moveMade) {
+              experiencesGained++;
+              experiencesThisSecondRef.current++;
+              
+              // Check if game just ended
+              if (game.gameOver) {
+                const score = game.score;
+                episodeScoresRef.current.push(score);
+                setRecentScores(prev => [...prev.slice(-99), score]);
+                
+                if (score > bestScore) {
+                  setBestScore(score);
+                }
+                
+                const avgScore = episodeScoresRef.current.slice(-100).reduce((a, b) => a + b, 0) / 
+                                Math.min(episodeScoresRef.current.length, 100);
+                setAvgScore(Math.round(avgScore));
+                
+                setTotalEpisodes(prev => prev + 1);
+                setTotalGamesCompleted(prev => prev + 1);
+                
+                // Track games and experiences per second
+                gamesThisSecondRef.current++;
+                const now = Date.now();
+                if (now - lastSecondRef.current >= 1000) {
+                  setGamesPerSecond(gamesThisSecondRef.current);
+                  setExperiencesPerSecond(experiencesThisSecondRef.current);
+                  gamesThisSecondRef.current = 0;
+                  experiencesThisSecondRef.current = 0;
+                  lastSecondRef.current = now;
+                }
+                
+                // IMMEDIATELY reset the game to continue learning
+                game.reset();
+              }
+            }
+          } else {
+            // No valid actions means game is over, reset it
+            if (!game.gameOver) {
+              game.gameOver = true;
+              const score = game.score;
+              episodeScoresRef.current.push(score);
+              setTotalEpisodes(prev => prev + 1);
+              setTotalGamesCompleted(prev => prev + 1);
+            }
+            game.reset();
+          }
+        } else {
+          // Game is over, reset it immediately
+          game.reset();
+        }
+      }
+      
+      // Train the agent periodically
+      if (agent.step % agent.trainFreq === 0 && agent.memory.length > agent.batchSize) {
+        await agent.replay();
+        setEpsilon(agent.epsilon);
+      }
+    };
 
-    def create_header_section(self):
-        # Draggable header frame
-        self.header_frame = tk.Frame(self.frame, bg='#222222', height=30)
-        self.header_frame.pack(fill=tk.X, pady=(0, 10))
+    const interval = setInterval(trainStep, 5); // Faster updates for more responsive AI
+    return () => clearInterval(interval);
+  }, [isTraining, games, bestScore]);
 
-        # Make header draggable
-        self.header_frame.bind("<ButtonPress-1>", self.start_move)
-        self.header_frame.bind("<ButtonRelease-1>", self.stop_move)
-        self.header_frame.bind("<B1-Motion>", self.on_motion)
+  const getTileColor = (value) => {
+    const colors = {
+      0: 'bg-gray-200',
+      2: 'bg-yellow-100 text-gray-800',
+      4: 'bg-yellow-200 text-gray-800',
+      8: 'bg-orange-300 text-white',
+      16: 'bg-orange-400 text-white',
+      32: 'bg-orange-500 text-white',
+      64: 'bg-red-400 text-white',
+      128: 'bg-red-500 text-white',
+      256: 'bg-red-600 text-white',
+      512: 'bg-purple-500 text-white',
+      1024: 'bg-purple-600 text-white',
+      2048: 'bg-yellow-500 text-white'
+    };
+    return colors[value] || 'bg-gray-800 text-white';
+  };
 
-        # Title label (also draggable)
-        title_label = tk.Label(self.header_frame, text="Key Visualizer",
-                               bg="#222222", fg="#FFFFFF", font=("Arial", 10, "bold"))
-        title_label.pack(side=tk.LEFT, padx=10)
-        title_label.bind("<ButtonPress-1>", self.start_move)
-        title_label.bind("<B1-Motion>", self.on_motion)
-
-        # "..." Button to open the control menu
-        self.menu_btn = tk.Button(self.header_frame, text="...", command=self.toggle_control_bar,
-                                  bg="#222222", fg="white", bd=0, font=("Arial", 12))
-        self.menu_btn.pack(side=tk.RIGHT, padx=5)
-
-        # Minimize and close buttons
-        minimize_btn = tk.Button(self.header_frame, text="_", command=self.minimize,
-                                 bg="#222222", fg="white", bd=0, font=("Arial", 12))
-        minimize_btn.pack(side=tk.RIGHT, padx=5)
-
-        exit_btn = tk.Button(self.header_frame, text="X", command=self.cleanup_and_exit,
-                             bg="#222222", fg="white", bd=0, font=("Arial", 12))
-        exit_btn.pack(side=tk.RIGHT, padx=5)
-
-    def start_move(self, event):
-        """Start moving the window."""
-        self.x = event.x
-        self.y = event.y
-
-    def stop_move(self, event):
-        """Stop moving the window."""
-        self.x = None
-        self.y = None
-
-    def on_motion(self, event):
-        """Move the window."""
-        if self.x is not None and self.y is not None:
-            delta_x = event.x - self.x
-            delta_y = event.y - self.y
-            new_x = self.root.winfo_x() + delta_x
-            new_y = self.root.winfo_y() + delta_y
-            self.root.geometry(f"+{new_x}+{new_y}")
-
-    def open_settings_file(self):
-        """Open the settings file in a text editor."""
-        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'keyvis_settings.json')
-        try:
-            if os.name == 'nt':  # Windows
-                os.startfile(settings_path)  # Open the file using the default text editor
-            else:
-                subprocess.call(['xdg-open', settings_path])  # For Linux systems
-        except Exception as e:
-            self.show_error(f"Error opening settings file: {e}")
-
-    def create_control_bar(self):
-        """Create a second top bar for control buttons."""
-        self.control_bar = tk.Frame(self.frame, bg="#333333", height=30)
-        self.control_bar.pack(fill=tk.X, pady=(0, 10))
-        self.control_bar.pack_forget()  # Start hidden
-
-        # Add control buttons
-        self.toggle_top_btn = tk.Button(self.control_bar, text="📌", command=self.toggle_topmost,
-                                        bg="#444444", fg="white", bd=0, font=("Arial", 12))
-        self.toggle_top_btn.pack(side=tk.LEFT, padx=5, pady=5)
-
-        self.toggle_stats_btn = tk.Button(self.control_bar, text="📊", command=self.toggle_stats,
-                                          bg="#444444", fg="white", bd=0, font=("Arial", 12))
-        self.toggle_stats_btn.pack(side=tk.LEFT, padx=5, pady=5)
+  return (
+    <div className="p-4 bg-gray-100 min-h-screen">
+      <h1 className="text-3xl font-bold mb-4 text-center text-gray-800">
+        Multi-Game 2048 Deep RL AI
+      </h1>
+      
+      {/* Controls */}
+      <div className="flex flex-wrap gap-4 mb-6 justify-center items-center">
+        <div className="flex items-center gap-2">
+          <label className="font-semibold">Games:</label>
+          <select 
+            value={numGames} 
+            onChange={(e) => handleNumGamesChange(Number(e.target.value))}
+            disabled={isTraining}
+            className="p-2 border rounded"
+          >
+            <option value={1}>1</option>
+            <option value={2}>2</option>
+            <option value={4}>4</option>
+            <option value={6}>6</option>
+            <option value={8}>8</option>
+            <option value={12}>12</option>
+            <option value={16}>16</option>
+          </select>
+        </div>
         
-        # Add compact mode toggle button
-        self.toggle_compact_btn = tk.Button(self.control_bar, text="📏", command=self.toggle_compact_mode,
-                                          bg="#444444", fg="white", bd=0, font=("Arial", 12))
-        self.toggle_compact_btn.pack(side=tk.LEFT, padx=5, pady=5)
+        <button
+          onClick={() => setIsTraining(!isTraining)}
+          className={`px-6 py-2 rounded font-semibold ${
+            isTraining ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+          }`}
+        >
+          {isTraining ? 'Stop Training' : 'Start Training'}
+        </button>
+        
+        <button
+          onClick={resetAllGames}
+          className="px-6 py-2 bg-blue-500 text-white rounded font-semibold"
+        >
+          Reset All
+        </button>
+      </div>
 
-        # Add error console button, only if debug mode is enabled
-        if self.settings.get("debug_mode", False):
-            self.open_settings_btn = tk.Button(self.control_bar, text="⚙️", command=self.open_settings_file,
-                                              bg="#444444", fg="white", bd=0, font=("Arial", 12))
-            self.open_settings_btn.pack(side=tk.LEFT, padx=5, pady=5)
-            self.open_console_btn = tk.Button(self.control_bar, text="🐞", command=self.open_error_console,
-                                              bg="#444444", fg="white", bd=0, font=("Arial", 12))
-            self.open_console_btn.pack(side=tk.LEFT, padx=5, pady=5)
-        else:
-            print("Debug mode is disabled. Skipping debug-specific features.")
+      {/* Stats Dashboard */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-blue-600">{totalEpisodes}</div>
+          <div className="text-sm text-gray-600">Total Episodes</div>
+        </div>
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-green-600">{bestScore}</div>
+          <div className="text-sm text-gray-600">Best Score</div>
+        </div>
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-purple-600">{avgScore}</div>
+          <div className="text-sm text-gray-600">Avg Score</div>
+        </div>
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-orange-600">{(epsilon * 100).toFixed(1)}%</div>
+          <div className="text-sm text-gray-600">Exploration</div>
+        </div>
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-red-600">{experiencesPerSecond}</div>
+          <div className="text-sm text-gray-600">Exp/sec</div>
+        </div>
+        <div className="bg-white p-3 rounded shadow text-center">
+          <div className="text-2xl font-bold text-indigo-600">{gamesPerSecond}</div>
+          <div className="text-sm text-gray-600">Games/sec</div>
+        </div>
+      </div>
 
-        tk.Button(self.control_bar, text="❌", command=self.close_control_bar,
-                  bg="#444444", fg="white", bd=0, font=("Arial", 12)).pack(side=tk.LEFT, padx=5, pady=5)
+      {/* Game Grids */}
+      <div className={`grid gap-4 ${
+        numGames <= 2 ? 'grid-cols-1 md:grid-cols-2' :
+        numGames <= 4 ? 'grid-cols-2 md:grid-cols-2 lg:grid-cols-4' :
+        numGames <= 6 ? 'grid-cols-2 md:grid-cols-3' :
+        numGames <= 8 ? 'grid-cols-2 md:grid-cols-4' :
+        'grid-cols-3 md:grid-cols-4'
+      }`}>
+        {games.map((game, gameIndex) => (
+          <div key={gameIndex} className="bg-white p-4 rounded shadow">
+            <div className="text-center mb-2">
+              <div className="text-lg font-bold">Game {gameIndex + 1}</div>
+              <div className="text-sm text-gray-600">
+                Score: {game.score} | Moves: {game.moves}
+              </div>
+              {game.gameOver && <div className="text-red-500 text-sm">Game Over</div>}
+              {Math.max(...game.grid.flat()) >= 2048 && 
+                <div className="text-green-500 text-sm">🎉 2048!</div>
+              }
+            </div>
+            
+            <div className="grid grid-cols-4 gap-1 p-2 bg-gray-400 rounded aspect-square w-full max-w-[200px] mx-auto">
+              {game.grid.map((row, i) =>
+                row.map((cell, j) => (
+                  <div
+                    key={`${i}-${j}`}
+                    className={`aspect-square flex items-center justify-center rounded text-xs font-bold ${getTileColor(cell)}`}
+                  >
+                    {cell || ''}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
 
-    def toggle_control_bar(self):
-        """Toggle the visibility of the control bar and adjust window height."""
-        if self.control_bar.winfo_ismapped():
-            # Hide the control bar
-            self.control_bar.pack_forget()
-            # Shrink the window height
-            self.update_window_geometry(shrink_top_bar=True)
-        else:
-            # Show the control bar
-            self.control_bar.pack(fill=tk.X, pady=(0, 10), after=self.header_frame)
-            # Restore the window height
-            self.update_window_geometry(shrink_top_bar=False)
-
-    def update_window_geometry(self, shrink_top_bar=False):
-        """Update the window size based on stats visibility, compact mode, and top bar visibility."""
-        if self.compact_mode:
-            width = 500  # Width for compact mode
-            height = 250 if self.stats_visible else 180  # Height for compact mode
-        else:
-            width = 400  # Width for normal mode
-            height = 450 if self.stats_visible else 350  # Height for normal mode
-
-        # Adjust height if the top bar is hidden
-        if shrink_top_bar:
-            height -= 30  # Reduce height by the top bar's height
-
-        self.root.geometry(f"{width}x{height}")
-
-    def create_content_frame(self):
-        self.content_frame = tk.Frame(self.frame, bg='#333333')
-        self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-    def create_stats_section(self):
-        """Create the statistics section."""
-        self.stats_frame = tk.Frame(self.content_frame, bg="#2A2A2A", relief=tk.GROOVE)
-        self.stats_frame.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X, pady=(0, 10))
-
-        # Create statistics labels with grid layout
-        tk.Label(self.stats_frame, text="Total Presses", bg="#2A2A2A", fg="#AAAAAA", 
-                 font=("Arial", 9)).grid(row=0, column=0, padx=10, pady=(5, 2), sticky="w")
-        if self.settings.get("resets_counter_visible", False):  # Check the new setting
-            tk.Label(self.stats_frame, text="Resets", bg="#2A2A2A", fg="#AAAAAA", 
-                     font=("Arial", 9)).grid(row=0, column=1, padx=10, pady=(5, 2), sticky="w")
-        tk.Label(self.stats_frame, text="Keys/sec", bg="#2A2A2A", fg="#AAAAAA", 
-                 font=("Arial", 9)).grid(row=0, column=2, padx=10, pady=(5, 2), sticky="w")
-
-        # Second row - values
-        self.keypress_label = tk.Label(self.stats_frame, text="0", bg="#2A2A2A", fg="#FFFFFF", 
-                                       font=("Arial", 12, "bold"))
-        self.keypress_label.grid(row=1, column=0, padx=10, pady=(0, 5), sticky="w")
-        if self.settings.get("resets_counter_visible", False):  # Check the new setting
-            self.reset_label = tk.Label(self.stats_frame, text="0", bg="#2A2A2A", fg="#FFFFFF", 
-                                        font=("Arial", 12, "bold"))
-            self.reset_label.grid(row=1, column=1, padx=10, pady=(0, 5), sticky="w")
-        self.kps_label = tk.Label(self.stats_frame, text="0", bg="#2A2A2A", fg="#FFFFFF", 
-                                   font=("Arial", 12, "bold"))
-        self.kps_label.grid(row=1, column=2, padx=10, pady=(0, 5), sticky="w")
-
-    def toggle_stats(self):
-        """Toggle the visibility of the statistics section."""
-        self.stats_visible = not self.stats_visible
-        if self.stats_visible:
-            self.stats_frame.pack(side=tk.TOP, anchor=tk.NW, fill=tk.X, pady=(0, 10))
-        else:
-            self.stats_frame.pack_forget()
-        # Update the window geometry to reflect the change
-        self.update_window_geometry()
-
-    def create_spacebar_section(self):
-        """Create the space bar indicator."""
-        self.space_indicator = SpaceBarIndicator(self.spacebar_frame, "SPACE", None, self.settings)
-        self.space_indicator.frame.pack(anchor=tk.CENTER)
-
-    def create_arrow_keys_section(self):
-        """Create the arrow key indicators in a grid layout."""
-        # Ensure the frame is visible
-        if self.arrows_frame is None:
-            self.arrows_frame = tk.Frame(self.content_frame, bg='#333333')
-            self.arrows_frame.pack(side=tk.TOP, pady=10)
-
-        # Left key
-        self.left_indicator = KeyIndicator(self.arrows_frame, "LEFT", 0, 60, self.settings)
-        self.left_indicator.frame.place(x=0, y=60)
-        # Up key
-        self.up_indicator = KeyIndicator(self.arrows_frame, "UP", 60, 0, self.settings)
-        self.up_indicator.frame.place(x=60, y=0)
-        # Down key
-        self.down_indicator = KeyIndicator(self.arrows_frame, "DOWN", 60, 60, self.settings)
-        self.down_indicator.frame.place(x=60, y=60)
-        # Right key
-        self.right_indicator = KeyIndicator(self.arrows_frame, "RIGHT", 120, 60, self.settings)
-        self.right_indicator.frame.place(x=120, y=60)
-
-    def start_threads(self
-    </script>
+      {/* Training Info */}
+      <div className="mt-6 text-center text-gray-600">
+        {isTraining ? (
+          <div>
+            <p className="mb-2">🧠 {numGames} AI agents learning simultaneously!</p>
+            <p className="text-sm">Each game provides experience to the shared neural network</p>
+            <p className="text-sm">Training speed: {experiencesPerSecond} experiences/sec, {gamesPerSecond} games/sec</p>
+          </div>
+        ) : (
+          <div>
+            <p>Configure the number of simultaneous games and start training</p>
+            <p className="text-sm">More games = faster learning through parallel experience gathering</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+    ReactDOM.createRoot(document.getElementById('root')).render(<MultiGame2048RL />);
+  </script>
 </body>
 </html>
